@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"flag"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -13,8 +14,10 @@ import (
 	"go/printer"
 	"go/token"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"text/template"
 
 	"golang.org/x/tools/go/ast/astutil"
@@ -80,45 +83,50 @@ func init() {
 }
 `
 
-const src = `package foo
-
-import (
-	"crypto/aes"
-	"crypto/cipher"
-)
-
-var hello string
-
-var yolo = "poeut"
-var arr = []string{
-	"a",
-	"b",
-}
-
-var (
-	str1 = "coucou"
-	arr1 = []string{
-		"foo",
-		"bar",
-	}
-	arr2 = []string{"h", "g"}
-
-)
-func init() {
-}
-`
-
 type variable struct {
 	Name   string
 	Values [][]string
 }
 
-func main() {
-	fset := token.NewFileSet()
+var (
+	_output   = flag.String("output", "", "output file name; default stdout")
+	_filename = flag.String("filename", "", "name of the file to be obfuscate")
+)
 
-	f, err := parser.ParseFile(fset, "", src, 0)
+func usage() {
+	fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "\tstrobfus -filename <file>.go\n")
+	fmt.Fprintf(os.Stderr, "For more information, see:\n")
+	fmt.Fprintf(os.Stderr, "\thttp://github.com/znly/strobfus\n")
+	fmt.Fprintf(os.Stderr, "Flags:\n")
+	flag.PrintDefaults()
+}
+
+func checkArgs() {
+	flag.Usage = usage
+	flag.Parse()
+
+	if *_filename == "" {
+		usage()
+		os.Exit(1)
+	}
+}
+
+func main() {
+	log.SetFlags(0)
+	log.SetPrefix("strobfus: ")
+
+	checkArgs()
+
+	content, err := ioutil.ReadFile(*_filename)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", content, 0)
+	if err != nil {
+		log.Fatalf("unable to parse %s: %v", *_filename, err)
 	}
 
 	key, nonce, aesgcm, err := setupAES()
@@ -177,16 +185,27 @@ func main() {
 		log.Fatal(err)
 	}
 
-	out := bufio.NewWriter(os.Stdout)
+	out := (io.Writer)(os.Stdout) // default output
+	if *_output != "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			log.Fatal(err)
+		}
+		out, err = os.Create(filepath.Join(wd, *_output))
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
 
-	out.WriteString(string(vars))
+	writer := bufio.NewWriter(out)
+	writer.WriteString(string(vars))
 
 	tmpl, err := template.New("").Parse(tmpl)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = tmpl.Execute(out, struct {
+	err = tmpl.Execute(writer, struct {
 		PrivateKey, Nonce []string
 		Variables         []*variable
 	}{
@@ -198,7 +217,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	out.Flush()
+	writer.Flush()
 }
 
 func setupAES() (key, nonce []byte, aesgcm cipher.AEAD, err error) {
