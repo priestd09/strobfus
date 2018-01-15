@@ -13,130 +13,14 @@ import (
 	"go/printer"
 	"go/token"
 	"io"
+	"log"
 	"os"
 	"text/template"
 
 	"golang.org/x/tools/go/ast/astutil"
 )
 
-func main() {
-	fset := token.NewFileSet()
-
-	src := `package foo
-
-import (
-	"crypto/aes"
-	"crypto/cipher"
-)
-
-var hello string
-
-var yolo = "poeut"
-var arr = []string{
-	"a",
-	"b",
-}
-
-var (
-	str1 = "coucou"
-	arr1 = []string{
-		"foo",
-		"bar",
-	}
-	arr2 = []string{"h", "g"}
-
-)
-func init() {
-}
-`
-
-	f, err := parser.ParseFile(fset, "", src, 0)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	values := make(map[string][][]byte)
-	astutil.Apply(f, func(c *astutil.Cursor) bool {
-		switch typ := c.Node().(type) {
-		case *ast.GenDecl:
-			for _, spec := range typ.Specs {
-				if vSpec, ok := spec.(*ast.ValueSpec); ok {
-					for _, v := range vSpec.Values {
-						switch real := v.(type) {
-						case *ast.BasicLit:
-							if real.Kind == token.STRING {
-								if len(real.Value) > 2 {
-									values[vSpec.Names[0].Name] = [][]byte{[]byte(real.Value[1 : len(real.Value)-1])}
-									// vSpec.Comment = &ast.CommentGroup{List: []*ast.Comment{{Text: " // " + real.Value}}} // doesn't work yet
-									real.Value = `""`
-								}
-							}
-						case *ast.CompositeLit:
-							elts := make([][]byte, 0, len(real.Elts))
-							for _, elt := range real.Elts {
-								if inner, ok := elt.(*ast.BasicLit); ok && inner.Kind == token.STRING {
-									if len(inner.Value) > 2 {
-										elts = append(elts, []byte(inner.Value[1:len(inner.Value)-1]))
-									}
-								}
-							}
-							if len(elts) > 0 {
-								values[vSpec.Names[0].Name] = elts
-								real.Elts = []ast.Expr{}
-							}
-						}
-					}
-				}
-			}
-		case *ast.FuncDecl:
-			if typ.Name.Name == "init" {
-				c.Delete()
-			}
-		}
-		return true
-	}, nil)
-	astutil.AddImport(fset, f, "crypto/aes")
-	astutil.AddImport(fset, f, "crypto/cipher")
-
-	config := &printer.Config{}
-	var buf bytes.Buffer
-	err = config.Fprint(&buf, fset, f)
-
-	vars, err := format.Source(buf.Bytes())
-
-	key := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		panic(err)
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err)
-	}
-	nonce := make([]byte, 12)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		panic(err)
-	}
-
-	aesgcm, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err)
-	}
-
-	for k, v := range values {
-		array := make([][]byte, 0, len(v))
-		for _, inner := range v {
-			array = append(array, aesgcm.Seal(nil, nonce, inner, nil))
-		}
-		values[k] = array
-	}
-
-	out := bufio.NewWriter(os.Stdout)
-
-	out.WriteString(string(vars))
-
-	tmpl, err := template.New("").Parse(`
+const tmpl = `
 func init() {
 	var __privateKeyObfuscator = []byte{
 		{{- range .PrivateKey }}
@@ -193,39 +77,148 @@ func init() {
 		{{- end }}
 	}
 	{{- end}}
-}`)
+}
+`
 
+const src = `package foo
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+)
+
+var hello string
+
+var yolo = "poeut"
+var arr = []string{
+	"a",
+	"b",
+}
+
+var (
+	str1 = "coucou"
+	arr1 = []string{
+		"foo",
+		"bar",
+	}
+	arr2 = []string{"h", "g"}
+
+)
+func init() {
+}
+`
+
+type variable struct {
+	Name   string
+	Values [][]string
+}
+
+func main() {
+	fset := token.NewFileSet()
+
+	f, err := parser.ParseFile(fset, "", src, 0)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	type variable struct {
-		Name   string
-		Values [][]string
+	key, nonce, aesgcm, err := setupAES()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	variables := make([]variable, 0)
-	for k, v := range values {
-		if len(v) == 1 { //  string
-			variables = append(variables, variable{Name: k, Values: [][]string{bytesToHex(v[0])}})
-		} else {
-			array := make([][]string, 0, len(v))
-			for _, inner := range v {
-				array = append(array, bytesToHex(inner))
+	variables := make([]*variable, 0)
+	astutil.Apply(f, func(c *astutil.Cursor) bool {
+		switch typ := c.Node().(type) {
+		case *ast.GenDecl:
+			for _, spec := range typ.Specs {
+				if vSpec, ok := spec.(*ast.ValueSpec); ok {
+					for _, v := range vSpec.Values {
+						obfuscated := &variable{Name: vSpec.Names[0].Name}
+						switch real := v.(type) {
+						case *ast.BasicLit:
+							if real.Kind == token.STRING && len(real.Value) > 2 {
+								obfuscated.Values = [][]string{bytesToHex(aesgcm.Seal(nil, nonce, []byte(real.Value[1:len(real.Value)-1]), nil))}
+								variables = append(variables, obfuscated)
+								// vSpec.Comment = &ast.CommentGroup{List: []*ast.Comment{{Text: " // " + real.Value}}} // doesn't work yet
+								real.Value = `""`
+							}
+						case *ast.CompositeLit:
+							for _, elt := range real.Elts {
+								if inner, ok := elt.(*ast.BasicLit); ok && inner.Kind == token.STRING && len(inner.Value) > 2 {
+									obfuscated.Values = append(obfuscated.Values, bytesToHex(aesgcm.Seal(nil, nonce, []byte(inner.Value[1:len(inner.Value)-1]), nil)))
+								}
+							}
+							variables = append(variables, obfuscated)
+							real.Elts = []ast.Expr{}
+						}
+					}
+				}
 			}
-			variables = append(variables, variable{Name: k, Values: array})
+		case *ast.FuncDecl:
+			if typ.Name.Name == "init" {
+				c.Delete()
+			}
 		}
+		return true
+	}, nil)
+	astutil.AddImport(fset, f, "crypto/aes")
+	astutil.AddImport(fset, f, "crypto/cipher")
+
+	config := &printer.Config{}
+	var buf bytes.Buffer
+
+	err = config.Fprint(&buf, fset, f)
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	vars, err := format.Source(buf.Bytes())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	out := bufio.NewWriter(os.Stdout)
+
+	out.WriteString(string(vars))
+
+	tmpl, err := template.New("").Parse(tmpl)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	err = tmpl.Execute(out, struct {
 		PrivateKey, Nonce []string
-		Variables         []variable
+		Variables         []*variable
 	}{
 		PrivateKey: bytesToHex(key),
 		Nonce:      bytesToHex(nonce),
 		Variables:  variables,
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	out.Flush()
+}
+
+func setupAES() (key, nonce []byte, aesgcm cipher.AEAD, err error) {
+	key = make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		return nil, nil, nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	nonce = make([]byte, 12)
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, nil, nil, err
+	}
+	aesgcm, err = cipher.NewGCM(block)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return key, nonce, aesgcm, nil
 }
 
 func bytesToHex(value []byte) []string {
