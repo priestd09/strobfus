@@ -139,8 +139,7 @@ func main() {
 							if real.Kind == token.STRING && len(real.Value) > 2 {
 								obfuscated.Values = [][]string{bytesToHex(aesgcm.Seal(nil, nonce, []byte(real.Value[1:len(real.Value)-1]), nil))}
 								variables = append(variables, obfuscated)
-								// vSpec.Comment = &ast.CommentGroup{List: []*ast.Comment{{Text: " // " + real.Value}}} // doesn't work yet
-								real.Value = `""`
+								real.Value = `"" // ` + real.Value[1:len(real.Value)-1]
 							}
 						case *ast.CompositeLit:
 							for _, elt := range real.Elts {
@@ -148,6 +147,7 @@ func main() {
 									obfuscated.Values = append(obfuscated.Values, bytesToHex(aesgcm.Seal(nil, nonce, []byte(inner.Value[1:len(inner.Value)-1]), nil)))
 								}
 							}
+							// TODO: find a way to add comments with the content
 							if len(obfuscated.Values) > 0 {
 								obfuscated.IsArray = true
 								variables = append(variables, obfuscated)
