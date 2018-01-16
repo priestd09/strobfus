@@ -79,8 +79,8 @@ func init() {
 		{{ .Name }} = string(plaintext)
 		{{- end }}
 	}
-	{{- end}}
-	{{ .InitCode }}
+	{{- end -}}
+	{{ .InitCode -}}
 }
 `
 
@@ -148,7 +148,6 @@ func main() {
 						switch real := v.(type) {
 						case *ast.BasicLit:
 							if real.Kind == token.STRING && len(real.Value) > 2 {
-								obfuscated.IsArray = false
 								obfuscated.Values = [][]string{bytesToHex(aesgcm.Seal(nil, nonce, []byte(real.Value[1:len(real.Value)-1]), nil))}
 								variables = append(variables, obfuscated)
 
@@ -170,9 +169,8 @@ func main() {
 			}
 		case *ast.FuncDecl:
 			if typ.Name.Name == "init" {
-				from := int(typ.Body.Lbrace)
-				to := int(typ.Body.Rbrace)
-				initCode = string(content[from-1 : to])
+				from, to := int(typ.Body.Lbrace), int(typ.Body.Rbrace)
+				initCode = string(content[from : to-1])
 				c.Delete()
 			}
 		}
