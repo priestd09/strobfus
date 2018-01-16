@@ -4,8 +4,9 @@ package main
 
 import "fmt"
 
-//go:generate strobfus -filename $GOFILE -output ./basic.gen.go
+// go:generate strobfus -filename $GOFILE -output ./basic.gen.go
 
+// a little comment
 var hello string
 
 var yolo = "poeut"
