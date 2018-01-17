@@ -97,7 +97,7 @@ type variable struct {
 }
 
 var (
-	_output   = flag.String("output", "", "output file name; default stdout")
+	_output   = flag.String("output", "", "output file name; default <file>_gen.go; you can pass stdout to print the result on the standard output")
 	_filename = flag.String("filename", "", "name of the file to be obfuscate")
 )
 
@@ -123,7 +123,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	initCode := ""
+	initCode := "\n"
 	variables := make([]*variable, 0)
 	astutil.Apply(f, func(c *astutil.Cursor) bool {
 		switch typ := c.Node().(type) {
@@ -147,7 +147,7 @@ func main() {
 									obfuscated.Values = append(obfuscated.Values, bytesToHex(aesgcm.Seal(nil, nonce, []byte(inner.Value[1:len(inner.Value)-1]), nil)))
 								}
 							}
-							// TODO: find a way to add comments with the content
+							// TODO: find a way to add comments with the content of []string
 							if len(obfuscated.Values) > 0 {
 								obfuscated.IsArray = true
 								variables = append(variables, obfuscated)
@@ -201,7 +201,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	writer := bufio.NewWriter(getOutput(*_output))
+	writer := bufio.NewWriter(getOutput(*_filename, *_output))
 	writer.WriteString(header)
 	writer.WriteString(string(vars))
 
@@ -275,18 +275,23 @@ func bytesToHex(value []byte) []string {
 }
 
 // getOutput returns an io.Writer to the outputFile
-// in case of an empty, it returns os.Stdout
-func getOutput(outputFile string) io.Writer {
-	out := (io.Writer)(os.Stdout) // default output
-	if outputFile != "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			log.Fatal(err)
-		}
-		out, err = os.Create(filepath.Join(wd, outputFile))
-		if err != nil {
-			log.Fatal(err)
-		}
+// in case of an empty string, it returns an io.Writer on the outputFile_gen.go
+// in case of "stdout", it returns os.Stdout
+func getOutput(filename, outputFile string) io.Writer {
+	out := (io.Writer)(os.Stdout)
+	if outputFile == "stdout" {
+		return out
+	}
+	if outputFile == "" {
+		outputFile = strings.TrimSuffix(filename, filepath.Ext(filename)) + "_gen.go"
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	out, err = os.Create(filepath.Join(wd, outputFile))
+	if err != nil {
+		log.Fatal(err)
 	}
 	return out
 }

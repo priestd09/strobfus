@@ -4,7 +4,7 @@ package main
 
 import "fmt"
 
-// go:generate strobfus -filename $GOFILE -output ./basic.gen.go
+//go:generate strobfus -filename $GOFILE
 
 // a little comment
 var hello string
