@@ -1,3 +1,17 @@
+// Copyright © 2018 Zenly <hello@zen.ly>.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
@@ -229,8 +243,7 @@ func main() {
 	writer.Flush()
 }
 
-// setupAES is a little helper to create a key and an authenticated encryption
-// the key is an AES key of 16 bytes (AES-128)
+// setupAES is a little helper to create a AES key
 func setupAES() (key, nonce []byte, aesgcm cipher.AEAD, err error) {
 	key = make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
@@ -251,7 +264,7 @@ func setupAES() (key, nonce []byte, aesgcm cipher.AEAD, err error) {
 	return key, nonce, aesgcm, nil
 }
 
-// bytesToHex takes an array of byte and returns an array of string formatted in hex
+// bytesToHex takes an array of bytes and returns an array of string formatted in hex
 // with 16 characters by line.
 func bytesToHex(value []byte) []string {
 	ret := []string{}
